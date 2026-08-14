@@ -16,7 +16,7 @@ module spi_master_tb #(
     localparam real CLK_PERIOD = 1_000_000_000.0/CLK_FREQ; // 1_000_000_000 ns/s / 100M cycles/s
 
     logic clk = 0;
-    always #(CLK_PERIOD/2) clk = ~clk; //100 MHz
+    always #(CLK_PERIOD/2) clk = ~clk;
     
     logic reset;
     
@@ -104,7 +104,7 @@ spi_master #(
         tx_start = 1'b0;
         
         //wait 1 clk cycle for IDLE >> ASSERT_CS_N state transition
-        wait_clocks(1);
+        @(negedge clk);
         //check busy flag
         assert(busy == 1'b1)
         else begin
@@ -189,9 +189,11 @@ spi_master #(
             $error("mosi data mismatch");
             test_pass = 0;
         end
+        
+        wait_clocks(1);
             
         //idle state return
-        @(posedge clk);
+        @(negedge clk);
         
         assert(done == 1'b0)
         else begin
