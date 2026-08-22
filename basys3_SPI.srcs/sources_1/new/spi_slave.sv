@@ -21,7 +21,6 @@ module spi_slave#(
     logic [DATA_WIDTH-1:0] rx = '0;
     logic [DATA_WIDTH-1:0] tx = '0;
     logic [BIT_COUNTER_WIDTH-1:0] bit_counter = '0;
-    
 
 
     generate
@@ -34,25 +33,37 @@ module spi_slave#(
                         rx <= '0;
                         rx_data <= '0;
                         rx_valid <= 1'b0;
-                        tx <= '0;
                     end else if(cs_n) begin
                         bit_counter <= 0;
                         rx <= '0;
                         rx_valid <= 1'b0;
-                        tx <= '0;
                     end else begin
                         rx_valid <= 1'b0;
                         rx <= {rx[DATA_WIDTH-2:0],mosi};
                         bit_counter <= bit_counter + 1;
-                        
                         if(bit_counter == DATA_WIDTH-1) begin
                             bit_counter <= 0;
                             rx_data <= {rx[DATA_WIDTH-2:0],mosi};
                             rx_valid <= 1'b1;
                         end
-                        if(bit_counter == 0) begin
-                            tx <= tx_data;
-                        end
+                    end
+                end
+                
+                
+                always @ (negedge sclk or cs_n or posedge reset) begin
+                    if(reset || cs_n) begin
+                        tx <= '0;
+                    end else if(!cs_n && !CPHA && bit_counter == 0) begin
+                        tx <= tx_data << 1;
+                        miso <= tx_data[DATA_WIDTH-1];
+                    end else if(!cs_n && CPHA && bit_counter == 0 && sclk == CPOL) begin
+                        tx <= tx_data;
+                    end else if(!cs_n && CPHA && rx_valid) begin
+                        tx <= tx_data << 1;
+                        miso <= tx_data[DATA_WIDTH-1];
+                    end else begin
+                        miso <= tx[DATA_WIDTH-1];
+                        tx <= tx << 1;
                     end
                 end
             end
@@ -64,12 +75,10 @@ module spi_slave#(
                         rx <= '0;
                         rx_data <= '0;
                         rx_valid <= 1'b0;
-                        tx <= '0;
                     end else if(cs_n) begin
                         bit_counter <= 0;
                         rx <= '0;
                         rx_valid <= 1'b0;
-                        tx <= '0;
                     end else begin
                         rx_valid <= 1'b0;
                         rx <= {rx[DATA_WIDTH-2:0],mosi};
@@ -80,15 +89,28 @@ module spi_slave#(
                             rx_data <= {rx[DATA_WIDTH-2:0],mosi};
                             rx_valid <= 1'b1;
                         end
-                        if(bit_counter == 0) begin
-                            tx <= tx_data;
-                        end
+                    end 
+                end
+                
+                always @ (posedge sclk or cs_n or posedge reset) begin
+                    if(reset || cs_n) begin
+                        tx <= '0;
+                        miso <= 1'b0;
+                    end else if(!cs_n && !CPHA && bit_counter == 0) begin
+                        tx <= tx_data << 1;
+                        miso <= tx_data[DATA_WIDTH-1];
+                    end else if(!cs_n && CPHA && bit_counter == 0 && sclk == CPOL) begin
+                        tx <= tx_data;
+                    end else if(!cs_n && CPHA && rx_valid) begin
+                        tx <= tx_data << 1;
+                        miso <= tx_data[DATA_WIDTH-1];
+                    end else begin
+                        miso <= tx[DATA_WIDTH-1];
+                        tx <= tx << 1;
                     end
                 end
             end
         endcase
     endgenerate
-    
-    assign miso = cs_n ? 1'b0 : (bit_counter == 0) ? tx_data[DATA_WIDTH-1] : tx[DATA_WIDTH-1-bit_counter];
     
 endmodule
