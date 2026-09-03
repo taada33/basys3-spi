@@ -1,28 +1,23 @@
+`timescale 1ns / 1ps
+
 class spi_driver #(
-    parameter int DATA_WIDTH = 8
+    parameter int DATA_WIDTH = 8,
+    parameter bit CPOL,
+    parameter bit CPHA,
+    parameter time SCLK_HALF_PERIOD
 );
 
     virtual spi_if vif;
-    mailbox #(spi_transaction #(DATA_WIDTH)) mb;
-    bit CPOL;
-    bit CPHA;
-    time SCLK_HALF_PERIOD;
+    mailbox #(spi_stimulus_transaction #(DATA_WIDTH)) mb;
     
     function new(input virtual spi_if intf,
-                 input mailbox #(spi_transaction #(DATA_WIDTH)) mb,
-                 input bit CPOL, 
-                 input bit CPHA,
-                 input time SCLK_HALF_PERIOD
-    );
+                 input mailbox #(spi_stimulus_transaction #(DATA_WIDTH)) mb);
         this.vif = intf;
         this.mb = mb;
-        this.CPOL = CPOL;
-        this.CPHA = CPHA;
-        this.SCLK_HALF_PERIOD = SCLK_HALF_PERIOD;
     endfunction
 
     task run();
-        spi_transaction #(DATA_WIDTH) transaction;
+        spi_stimulus_transaction #(DATA_WIDTH) transaction;
         
         forever begin
             mb.get(transaction);
@@ -44,7 +39,7 @@ class spi_driver #(
     
     //uses the scope resolution operator (::). "Look inside this scope for this name"; since the spi_word
     //struct is defined in the spi_transaction class, not here.
-    task drive_word(spi_transaction #(DATA_WIDTH)::spi_word word);
+    task drive_word(spi_stimulus_transaction #(DATA_WIDTH)::spi_word word);
             //before leading edge
             vif.sclk = CPOL;
             vif.tx_data = word.tx_data;
@@ -68,5 +63,4 @@ class spi_driver #(
             end
             //sclk returns to CPOL
     endtask
-
 endclass
