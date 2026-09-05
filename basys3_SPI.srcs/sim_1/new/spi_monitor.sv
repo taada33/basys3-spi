@@ -85,6 +85,7 @@ class spi_monitor #(
                         if(i > 0) begin
                             leading_edge();
                         end
+                        
                         //trailing edge (SAMPLES)
                         trailing_edge();
                         miso_data = {miso_data[DATA_WIDTH-2:0],vif.miso};
@@ -94,6 +95,7 @@ class spi_monitor #(
                             leading_edge();
                         end
                         miso_data = {miso_data[DATA_WIDTH-2:0],vif.miso};
+                        
                         //trailing edge (SHIFTS)
                         trailing_edge();
                     end
