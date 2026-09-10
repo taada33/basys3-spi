@@ -18,6 +18,7 @@ module spi_master #(
     output logic [NUM_SLAVES-1:0] cs_n,
     
     input logic tx_start,
+    input logic last,
     output logic busy,
     output logic done,
     
@@ -30,7 +31,12 @@ module spi_master #(
     localparam int HALF_CYCLES = CYCLES_SPI/2;
     localparam int COUNTER_WIDTH = HALF_CYCLES <= 1 ? 1 : $clog2(HALF_CYCLES);
     logic [((DATA_WIDTH <= 1) ? 1 : $clog2(DATA_WIDTH))-1:0] data_counter;
+    
+    
     logic [COUNTER_WIDTH-1:0] counter_spi;
+    logic [COUNTER_WIDTH-1:0] counter_assert;
+    logic [COUNTER_WIDTH-1:0] counter_deassert;
+    
     logic [DATA_WIDTH-1:0] mosi_data;
     
     typedef enum logic [1:0] {
@@ -45,7 +51,21 @@ module spi_master #(
     always_ff @(posedge clk) begin
         if(reset) begin
             counter_spi <= 0;
+            counter_assert <= 0;
+            counter_deassert <= 0;
             sclk <= CPOL;
+        end else if(state == ASSERT_CS_N) begin
+            if(counter_assert == HALF_CYCLES-1) begin
+                counter_assert <= 0;
+            end else begin
+                counter_assert <= counter_assert + 1;
+            end
+        end else if(state == DEASSERT_CS_N) begin
+            if(counter_deassert == HALF_CYCLES-1) begin
+                counter_deassert <= 0;
+            end else begin
+                counter_deassert <= counter_deassert + 1;
+            end
         end else if(state == DATA) begin
             if(counter_spi == HALF_CYCLES-1) begin
                 counter_spi <= 0;
@@ -85,9 +105,12 @@ module spi_master #(
                     busy <= 1'b1;
                     cs_n <= ~(NUM_SLAVES'(1) << slave_select);
                     data_counter <= 0;
-                    state <= DATA;
+                    //chip select setup time tCSS
+                    if(counter_assert == HALF_CYCLES-1) begin
+                        state <= DATA;
+                    end
                     //preload mosi line if clock phase is 0
-                    if(!CPHA) begin
+                    if(!CPHA && counter_assert == 0) begin
                         mosi <= mosi_data[DATA_WIDTH-1];
                         mosi_data <= mosi_data << 1;
                     end
@@ -102,7 +125,12 @@ module spi_master #(
                         end else if(sclk != CPOL && counter_spi == HALF_CYCLES-1) begin
                           rx_data <= (rx_data << 1) | miso;
                           if(data_counter == DATA_WIDTH-1) begin
-                            state <= DEASSERT_CS_N;
+                            if(last == 1'b1) begin 
+                                state <= DEASSERT_CS_N;
+                            end else begin
+                                mosi_data <= tx_data;
+                                data_counter <= 0;
+                            end
                           end else begin
                             data_counter <= data_counter + 1;
                           end 
@@ -115,7 +143,13 @@ module spi_master #(
                             mosi_data <= mosi_data << 1;
                             data_counter <= data_counter + 1;
                           end else begin
-                            state <= DEASSERT_CS_N;
+                            if(last == 1'b1) begin
+                                state <= DEASSERT_CS_N;
+                            end else begin
+                                data_counter <= 0;
+                                mosi <= tx_data[DATA_WIDTH-1];
+                                mosi_data <= tx_data << 1;
+                            end
                           end
                         //leading edge sample
                         end else if(sclk == CPOL && counter_spi == HALF_CYCLES-1) begin
@@ -124,11 +158,14 @@ module spi_master #(
                     end
                 end
                 DEASSERT_CS_N: begin
-                    cs_n <= '1;
                     data_counter <= 0;
-                    state <= IDLE;
                     busy <= 1'b0;
                     done <= 1'b1;
+                    //chip-select hold time tCSH
+                    if(counter_deassert == HALF_CYCLES-1) begin
+                        state <= IDLE;
+                        cs_n <= '1;
+                    end
                 end
                 default: state <= IDLE;
             endcase
