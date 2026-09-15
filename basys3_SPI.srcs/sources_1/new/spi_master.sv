@@ -8,24 +8,25 @@ module spi_master #(
     parameter int CPOL = 0,
     parameter int CPHA = 0
 )(
-    input logic clk,
-    input logic reset,
+    //AXI4-Stream interfaces
+    axis_if.slave  s_axis_tx,
+    axis_if.master m_axis_rx,
     
-    input logic [DATA_WIDTH-1:0] tx_data,
-    output logic [DATA_WIDTH-1:0] rx_data,
-    
-    input logic [((NUM_SLAVES <= 1) ? 1 : $clog2(NUM_SLAVES))-1:0] slave_select,
+    //SPI signals
     output logic [NUM_SLAVES-1:0] cs_n,
-    
-    input logic tx_start,
-    input logic last,
-    output logic busy,
-    output logic done,
-    
     input logic miso,
     output logic sclk,
     output logic mosi
     );
+    
+    logic clk;
+    logic reset;
+    
+    logic [DATA_WIDTH-1:0] rx_data;
+    logic [((NUM_SLAVES <= 1) ? 1 : $clog2(NUM_SLAVES))-1:0] slave_select;
+    
+    logic last;
+    logic tx_handshake;
     
     localparam int CYCLES_SPI = CLK_FREQ / SPI_FREQ;
     localparam int HALF_CYCLES = CYCLES_SPI/2;
@@ -39,15 +40,42 @@ module spi_master #(
     
     logic [DATA_WIDTH-1:0] mosi_data;
     
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         IDLE,
         ASSERT_CS_N,
         DATA,
+        WAIT_DATA,
         DEASSERT_CS_N
     } state_t;  
     state_t state;
     
+    //global signals
+    assign clk = m_axis_rx.ACLK;
+    assign reset = ~m_axis_rx.ARESETn;
     
+    //Slave signals (CONTROLLER to SPI MASTER)
+    assign s_axis_tx.TREADY = ((state == IDLE || state == WAIT_DATA) && ~(m_axis_rx.TVALID && ~m_axis_rx.TREADY));
+    assign tx_handshake = s_axis_tx.TVALID && s_axis_tx.TREADY;
+    
+    //Master signals (SPI MASTER to CONTROLLER)
+    assign m_axis_rx.TDATA = rx_data;
+    //unused signals
+    assign m_axis_rx.TLAST = 1'b0;
+    assign m_axis_rx.TDEST = '0;
+
+    //TVALID control block
+    always_ff @(posedge clk) begin
+        if(reset) begin
+            m_axis_rx.TVALID <= 1'b0;
+        end else if((state == DATA) && (counter_spi == HALF_CYCLES-1) && (data_counter == DATA_WIDTH-1) && (CPHA ? sclk != CPOL : sclk == CPOL)) begin
+            m_axis_rx.TVALID <= 1'b1;
+        end else if(m_axis_rx.TVALID && m_axis_rx.TREADY) begin
+            m_axis_rx.TVALID <= 1'b0;
+        end
+    end
+    
+
+    //counters block
     always_ff @(posedge clk) begin
         if(reset) begin
             counter_spi <= 0;
@@ -84,25 +112,25 @@ module spi_master #(
         if(reset) begin
             state <= IDLE;
             cs_n <= '1;
-            busy <= 1'b0;
-            done <= 1'b0;
             mosi <= 1'b0;
             rx_data <= 0;
             mosi_data <= 0;
-            data_counter <= 0;      
+            data_counter <= 0; 
+            last <= 1'b0;
+            slave_select <= '0;
         end else begin
             case (state)
                 IDLE: begin
                     cs_n <= '1;
-                    busy <= 1'b0;
-                    done <= 1'b0; 
-                    if(tx_start == 1'b1) begin
+                    if(tx_handshake == 1'b1) begin
                         state <= ASSERT_CS_N;
-                        mosi_data <= tx_data;
+//                        mosi_data <= tx_data;
+                        mosi_data <= s_axis_tx.TDATA;
+                        last <= s_axis_tx.TLAST;
+                        slave_select <= s_axis_tx.TDEST;
                     end
                 end
                 ASSERT_CS_N: begin
-                    busy <= 1'b1;
                     cs_n <= ~(NUM_SLAVES'(1) << slave_select);
                     data_counter <= 0;
                     //chip select setup time tCSS
@@ -128,7 +156,7 @@ module spi_master #(
                             if(last == 1'b1) begin 
                                 state <= DEASSERT_CS_N;
                             end else begin
-                                mosi_data <= tx_data;
+                                state <= WAIT_DATA;
                                 data_counter <= 0;
                             end
                           end else begin
@@ -147,8 +175,7 @@ module spi_master #(
                                 state <= DEASSERT_CS_N;
                             end else begin
                                 data_counter <= 0;
-                                mosi <= tx_data[DATA_WIDTH-1];
-                                mosi_data <= tx_data << 1;
+                                state <= WAIT_DATA;
                             end
                           end
                         //leading edge sample
@@ -157,10 +184,19 @@ module spi_master #(
                         end
                     end
                 end
+                WAIT_DATA: begin
+                    if(tx_handshake == 1'b1) begin
+                        state <= DATA;
+                        mosi_data <= s_axis_tx.TDATA;
+                        last <= s_axis_tx.TLAST;
+                        if(!CPHA) begin
+                            mosi <= s_axis_tx.TDATA[DATA_WIDTH-1];
+                            mosi_data <= s_axis_tx.TDATA << 1;
+                        end
+                    end
+                end
                 DEASSERT_CS_N: begin
                     data_counter <= 0;
-                    busy <= 1'b0;
-                    done <= 1'b1;
                     //chip-select hold time tCSH
                     if(counter_deassert == HALF_CYCLES-1) begin
                         state <= IDLE;

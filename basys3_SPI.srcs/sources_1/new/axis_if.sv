@@ -12,7 +12,7 @@ interface axis_if #(
     logic TLAST;
     logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] TDEST;
     
-    modport source (
+    modport master (
         output TDATA,
         output TVALID,
         output TLAST,
@@ -24,7 +24,7 @@ interface axis_if #(
         input ARESETn
     );
     
-    modport sink (
+    modport slave (
         output TREADY,
         
         input TDATA,
