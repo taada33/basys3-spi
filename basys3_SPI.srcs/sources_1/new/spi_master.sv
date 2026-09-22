@@ -67,7 +67,13 @@ module spi_master #(
     always_ff @(posedge clk) begin
         if(reset) begin
             m_axis_rx.TVALID <= 1'b0;
-        end else if((state == DATA) && (counter_spi == HALF_CYCLES-1) && (data_counter == DATA_WIDTH-1) && (CPHA ? sclk != CPOL : sclk == CPOL)) begin
+            //TVALID 1'b1 conditions
+        end else if((state == DATA) //state is DATA
+         && (counter_spi == HALF_CYCLES-1) //sclk edge
+         && (data_counter == DATA_WIDTH-1) //last data bit
+         && (CPHA ? sclk != CPOL // CPHA = 1 --> trailing sampling edge 
+          : sclk == CPOL) // CPHA = 0 --> leading sampling edge
+          ) begin
             m_axis_rx.TVALID <= 1'b1;
         end else if(m_axis_rx.TVALID && m_axis_rx.TREADY) begin
             m_axis_rx.TVALID <= 1'b0;
