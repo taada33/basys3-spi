@@ -11,6 +11,7 @@ module spi_memory_controller #(
     localparam int MEM_DEPTH = 2**DATA_WIDTH;
     
     logic [DATA_WIDTH-1:0] memory [0:MEM_DEPTH-1];
+    logic address_valid [0:MEM_DEPTH-1];
     
     logic clk;
     logic reset;
@@ -18,13 +19,18 @@ module spi_memory_controller #(
     logic response_handshake;
     logic request_handshake;
     
+    logic response_handshake_complete;
+    logic request_handshake_complete;
+    
     logic [DATA_WIDTH-1:0] opcode;
     logic [DATA_WIDTH-1:0] address;
     
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         OPCODE,
         ADDRESS,
         DATA,
+        TURNAROUND,
+        VALIDITY,
         RESPONSE
     } state_t;  
     state_t state;
@@ -64,6 +70,13 @@ module spi_memory_controller #(
             m_axis_response.TVALID <= 1'b0;
             s_axis_request.TREADY <= 1'b0;
             m_axis_response.TDATA <= '0;
+            
+            response_handshake_complete <= 1'b0;
+            request_handshake_complete <= 1'b0;
+            
+            for(int i = 0; i < MEM_DEPTH; i++) begin
+                address_valid[i] <= '0;
+            end
         end else begin
             case(state)
                 OPCODE: begin
@@ -71,54 +84,95 @@ module spi_memory_controller #(
                     if(request_handshake) begin
                         state <= ADDRESS;
                         opcode <= s_axis_request.TDATA;
-                        s_axis_request.TREADY <= 1'b0;
                     end
                 end
                 ADDRESS: begin
                     if(command == READ || command == WRITE) begin
-                        s_axis_request.TREADY <=1'b1;
                         if(request_handshake) begin
                         state <= DATA;
                         address <= s_axis_request.TDATA;                        
                         end
                     end else begin
                         state <= OPCODE;
-                        s_axis_request.TREADY <= 1'b1;
                     end
                 end
                 DATA: begin
                     if(request_handshake) begin
-                        state <= RESPONSE;
-                        s_axis_request.TREADY <= 1'b0;
-                        if(command == WRITE) memory[address] <= s_axis_request.TDATA;
+                        state <= TURNAROUND;
+                        if(command == WRITE) begin
+                            memory[address] <= s_axis_request.TDATA;
+                            address_valid[address] <= 1'b1;
+                        end
+                        m_axis_response.TDATA <= (command == WRITE || address_valid[address]) ? DATA_WIDTH'(1) : '0;
+                        m_axis_response.TVALID <= 1'b1;
                     end
                 end
-                RESPONSE: begin
+                TURNAROUND: begin
+                    if(response_handshake) begin
+                        m_axis_response.TVALID <= 1'b0;
+                        response_handshake_complete <= 1'b1;
+                    end
+                    if(request_handshake) begin
+                        request_handshake_complete <= 1'b1;
+                    end
+                    if((response_handshake_complete || response_handshake) && (request_handshake_complete || request_handshake)) begin
+                        state <= VALIDITY;
+                        response_handshake_complete <= 1'b0;
+                        request_handshake_complete <= 1'b0;
+                    end
+                end
+                VALIDITY: begin
                     case(command)
                         READ: begin
-                            m_axis_response.TDATA <= memory[address];
-                            m_axis_response.TVALID <= 1'b1;
+                            if(address_valid[address]) begin
+                                m_axis_response.TDATA <= memory[address];
+                            end
+                            m_axis_response.TVALID <= ~response_handshake_complete;
+                            
                             if(response_handshake) begin
-                                state <= OPCODE;
                                 m_axis_response.TVALID <= 1'b0;
-                                s_axis_request.TREADY <= 1'b1;
+                                response_handshake_complete <= 1'b1;
+                            end
+                            
+                            if(request_handshake) begin
+                                request_handshake_complete <= 1'b1;
+                            end
+                            
+                            if((response_handshake_complete || response_handshake) && (request_handshake_complete || request_handshake)) begin
+                                state <= RESPONSE;
+                                response_handshake_complete <= 1'b0;
+                                request_handshake_complete <= 1'b0;
                             end
                         end
                         WRITE: begin
                             m_axis_response.TDATA <= DATA_WIDTH'(1);
-                            m_axis_response.TVALID <= 1'b1;
+                            m_axis_response.TVALID <= ~response_handshake_complete;
                             if(response_handshake) begin
-                                state <= OPCODE;
                                 m_axis_response.TVALID <= 1'b0;
-                                s_axis_request.TREADY <= 1'b1;
+                                response_handshake_complete <= 1'b1;
+                            end
+                            
+                            if(request_handshake) begin
+                                request_handshake_complete <= 1'b1;
+                            end
+                            
+                            if((response_handshake_complete || response_handshake) && (request_handshake_complete || request_handshake)) begin
+                                state <= RESPONSE;
+                                response_handshake_complete <= 1'b0;
+                                request_handshake_complete <= 1'b0;
                             end
                         end
                         default: begin
-                            state <= OPCODE;
+                            state <= RESPONSE;
                             s_axis_request.TREADY <= 1'b1;
                             m_axis_response.TVALID <= 1'b0;
                         end
                     endcase
+                end
+                RESPONSE: begin
+                    if(request_handshake) begin
+                        state <= OPCODE;
+                    end
                 end
                 default: begin
                     state <= OPCODE;

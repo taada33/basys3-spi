@@ -1,7 +1,7 @@
 interface axis_if #(
     parameter int DATA_WIDTH = 8,
     parameter int NUM_DESTINATIONS = 1
-);
+)();
 
     logic ACLK;
     logic ARESETn;

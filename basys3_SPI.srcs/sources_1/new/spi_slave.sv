@@ -15,9 +15,7 @@ module spi_slave#(
     input logic reset,
     input logic mosi,
     input logic cs_n,
-    output logic [DATA_WIDTH-1:0] rx_data,
-    output logic miso,
-    output logic rx_valid
+    output logic miso
     );
     
     //unused signal assignments
@@ -26,9 +24,12 @@ module spi_slave#(
     
     
     //Data signals
+    logic [DATA_WIDTH-1:0] rx_data;
+    
     logic [DATA_WIDTH-1:0] response_data; //ACLK domain
     logic [DATA_WIDTH-1:0] tx_data; //SCLK domain
     logic tx_data_consumed;
+    logic rx_valid;
     
     //SPI internal
     localparam int BIT_COUNTER_WIDTH = (DATA_WIDTH <= 1) ? 1 : $clog2(DATA_WIDTH);
@@ -99,7 +100,7 @@ module spi_slave#(
     
     
     //Response CDC (SCLK)
-    always_ff @(posedge sclk) begin
+    always_ff @(posedge sclk or posedge reset) begin
         if(reset) begin
             tx_data <= '0;
             response_consumed <= 1'b0;
@@ -154,6 +155,7 @@ module spi_slave#(
                     if(reset || cs_n) begin
                         tx <= '0;
                         tx_data_consumed <= 1'b0;
+                        miso <= 1'b0;
                     end else if(!cs_n && !CPHA && bit_counter == 0) begin
                         tx_data_consumed <= 1'b1;
                         tx <= tx_data << 1;
