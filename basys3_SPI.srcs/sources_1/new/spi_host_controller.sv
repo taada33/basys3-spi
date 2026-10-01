@@ -15,7 +15,7 @@ module spi_host_controller #(
     input logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] destination,
     
     output logic busy,
-    output logic [1:0] status,
+    output logic status,
     output logic [DATA_WIDTH-1:0] read_data
 );
     logic [DATA_WIDTH-1:0] address_ff;
@@ -26,6 +26,8 @@ module spi_host_controller #(
     
     logic response_handshake;
     logic request_handshake;
+    
+    logic start_accepted;
 
     typedef enum logic [1:0] {
         NOP,
@@ -38,10 +40,11 @@ module spi_host_controller #(
     
     typedef enum logic [2:0] {
         IDLE,
-        SEND_OPCODE,
-        SEND_ADDRESS,
-        SEND_DATA,
-        SEND_DUMMY,
+        OPCODE_ACCEPTED,
+        ADDRESS_ACCEPTED,
+        DATA_ACCEPTED,
+        TURNAROUND,
+        WAIT_VALIDITY,
         WAIT_RESPONSE
     } state_t;  
     state_t state;
@@ -73,6 +76,7 @@ module spi_host_controller #(
             command_ff <= NOP;
             address_ff <= '0;
             write_data_ff <= '0;
+            start_accepted <= 1'b0;
             
             busy <= 1'b0;
             status <= '0;
@@ -86,48 +90,48 @@ module spi_host_controller #(
         end else begin
             case(state)
                 IDLE: begin
-                    m_axis_request.TDATA <= '0;
-                    m_axis_request.TVALID <= 1'b0;
-                    m_axis_request.TDEST <= '0;
-                    s_axis_response.TREADY <= 1'b0;
-                    status <= '0;
-                    busy <= 1'b0;
-                    if(start) begin
-                        if(destination < NUM_DESTINATIONS) begin
-                            if(command == READ) begin
-                                busy <= 1'b1;
-                                address_ff <= address;
-                                command_ff <= command;
-                                state <= SEND_OPCODE;
-                                m_axis_request.TDATA <= opcode;
-                                m_axis_request.TVALID <= 1'b1;
-                                m_axis_request.TDEST <= destination;
-                                s_axis_response.TREADY <= 1'b1;
-                            end else if(command == WRITE) begin
-                                busy <= 1'b1;
-                                address_ff <= address;
-                                write_data_ff <= write_data;
-                                command_ff <= command;
-                                state <= SEND_OPCODE;
-                                m_axis_request.TDATA <= opcode;
-                                m_axis_request.TVALID <= 1'b1;
-                                m_axis_request.TDEST <= destination;
-                                s_axis_response.TREADY <= 1'b1;
+                    if(~start_accepted) begin
+                        m_axis_request.TDATA <= '0;
+                        m_axis_request.TVALID <= 1'b0;
+                        m_axis_request.TDEST <= '0;
+                        s_axis_response.TREADY <= 1'b0;
+                        status <= 1'b0;
+                        busy <= 1'b0;
+                        if(start) begin
+                            start_accepted <= 1'b1;
+                            if(destination < NUM_DESTINATIONS) begin
+                                if(command == READ) begin
+                                    busy <= 1'b1;
+                                    address_ff <= address;
+                                    command_ff <= command;
+                                    m_axis_request.TDATA <= opcode;
+                                    m_axis_request.TVALID <= 1'b1;
+                                    m_axis_request.TDEST <= destination;
+                                    s_axis_response.TREADY <= 1'b1;
+                                end else if(command == WRITE) begin
+                                    busy <= 1'b1;
+                                    address_ff <= address;
+                                    write_data_ff <= write_data;
+                                    command_ff <= command;
+                                    m_axis_request.TDATA <= opcode;
+                                    m_axis_request.TVALID <= 1'b1;
+                                    m_axis_request.TDEST <= destination;
+                                    s_axis_response.TREADY <= 1'b1;
+                                end
                             end
+                        end
+                    end else begin
+                        if(request_handshake) begin
+                            state <= OPCODE_ACCEPTED;
+                            m_axis_request.TDATA <= address_ff;
+                            start_accepted <= 1'b0;
                         end
                     end
                 end
-                SEND_OPCODE: begin
-                    //sending opcode on handshake then loading the address
+                OPCODE_ACCEPTED: begin
+                    //opcode has been accepted, next handshake loads address
                     if(request_handshake) begin
-                        state <= SEND_ADDRESS;
-                        m_axis_request.TDATA <= address_ff;
-                        m_axis_request.TVALID <= 1'b1;
-                    end
-                end
-                SEND_ADDRESS: begin
-                    //sending address on handshake then loading data if write otherwise dummy
-                    if(request_handshake) begin
+                        state <= ADDRESS_ACCEPTED;
                         if(command_ff == READ) begin
                             m_axis_request.TDATA <= '0;
                             m_axis_request.TVALID <= 1'b1;
@@ -135,41 +139,52 @@ module spi_host_controller #(
                             m_axis_request.TDATA <= write_data_ff;
                             m_axis_request.TVALID <= 1'b1;
                         end
-                        state <= SEND_DATA;
+                        m_axis_request.TVALID <= 1'b1;
                     end
                 end
-                SEND_DATA: begin
-                    //sending data on handshake then loading dummy to exchange for memory response
+                ADDRESS_ACCEPTED: begin
+                    //address has been accepted, next handshake loads data
+                    if(request_handshake) begin
+                        m_axis_request.TDATA <= '0;
+                        state <= DATA_ACCEPTED;
+                    end
+                end
+                DATA_ACCEPTED: begin
+                    //data has been accepted, next handshake loads dummy
                     if(request_handshake) begin
                         m_axis_request.TDATA <= '0;
                         m_axis_request.TVALID <= 1'b1;
-                        m_axis_request.TLAST <= 1'b1;
-                        state <= SEND_DUMMY;
+                        state <= TURNAROUND;
                     end
                 end
-                SEND_DUMMY: begin
+                TURNAROUND: begin
+                    //another dummy work on handshake
                     if(request_handshake) begin
-                        m_axis_request.TVALID <= 1'b0;
-                        m_axis_request.TLAST <= 1'b0;
+                        state <= WAIT_VALIDITY;
+                    end
+                end
+                WAIT_VALIDITY: begin
+                    //reading validity on response handshake and updating status output
+                    if(response_handshake) begin
+                        status <= s_axis_response.TDATA[0];
                         state <= WAIT_RESPONSE;
+                        m_axis_request.TLAST <= 1'b1;
                     end
                 end
                 WAIT_RESPONSE: begin
+                    //reading response if READ command, updating read_data output
                     if(response_handshake) begin
                         if(command_ff == READ) begin
                             read_data <= s_axis_response.TDATA;
-                            status <= 2'b10;
-                        end else if(command_ff == WRITE) begin
-                            status <= s_axis_response.TDATA == DATA_WIDTH'(1) ? 2'b01 : 2'b11;
                         end
                         state <= IDLE;
                         busy <= 1'b0;
+                        m_axis_request.TVALID <= 1'b0;
+                        m_axis_request.TLAST <= 1'b0;
                     end
                 end
                 default: state <= IDLE;
             endcase
         end
     end
-
-
 endmodule
