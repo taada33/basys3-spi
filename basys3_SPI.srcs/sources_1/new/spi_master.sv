@@ -4,9 +4,7 @@ module spi_master #(
     parameter int DATA_WIDTH = 8,
     parameter int NUM_SLAVES = 1,
     parameter int CLK_FREQ = 100_000_000,
-    parameter int SPI_FREQ = 10_000_000,
-    parameter int CPOL = 0,
-    parameter int CPHA = 0
+    parameter int SPI_FREQ = 10_000_000
 )(
     //AXI4-Stream interfaces
     axis_if.slave  s_axis_tx,
@@ -21,6 +19,9 @@ module spi_master #(
     
     logic clk;
     logic reset;
+    
+    logic CPOL;
+    logic CPHA;
     
     logic [DATA_WIDTH-1:0] rx_data;
     logic [((NUM_SLAVES <= 1) ? 1 : $clog2(NUM_SLAVES))-1:0] slave_select;
@@ -62,6 +63,7 @@ module spi_master #(
     //unused signals
     assign m_axis_rx.TLAST = 1'b0;
     assign m_axis_rx.TDEST = '0;
+    assign m_axis_rx.TUSER = '0;
 
     //TVALID control block
     always_ff @(posedge clk) begin
@@ -87,7 +89,9 @@ module spi_master #(
             counter_spi <= 0;
             counter_assert <= 0;
             counter_deassert <= 0;
-            sclk <= CPOL;
+            sclk <= 1'b0;
+        end else if(state == IDLE && tx_handshake) begin
+            sclk <= s_axis_tx.TUSER[1];
         end else if(state == ASSERT_CS_N) begin
             if(counter_assert == HALF_CYCLES-1) begin
                 counter_assert <= 0;
@@ -116,6 +120,8 @@ module spi_master #(
     //fsm
     always_ff @(posedge clk) begin
         if(reset) begin
+            CPHA <= 0;
+            CPOL <= 0;
             state <= IDLE;
             cs_n <= '1;
             mosi <= 1'b0;
@@ -134,6 +140,8 @@ module spi_master #(
                         mosi_data <= s_axis_tx.TDATA;
                         last <= s_axis_tx.TLAST;
                         slave_select <= s_axis_tx.TDEST;
+                        CPHA <= s_axis_tx.TUSER[0];
+                        CPOL <= s_axis_tx.TUSER[1];
                     end
                 end
                 ASSERT_CS_N: begin

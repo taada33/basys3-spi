@@ -30,7 +30,7 @@ module host_master_tb();
     logic sclk;
     logic cs_n;
     
-    //master inputs
+    //slave outputs
     logic miso;
     
     //tb signals

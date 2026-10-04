@@ -8,6 +8,8 @@ module spi_host_controller #(
     axis_if.slave  s_axis_response,
     axis_if.master m_axis_request,
     
+    input logic [1:0] slave_spi_modes [0:NUM_DESTINATIONS-1],
+    
     input logic [DATA_WIDTH-1:0] opcode,
     input logic [DATA_WIDTH-1:0] address,
     input logic [DATA_WIDTH-1:0] write_data,
@@ -86,6 +88,7 @@ module spi_host_controller #(
             m_axis_request.TDATA <= '0;
             m_axis_request.TDEST <= '0;
             m_axis_request.TVALID <= 1'b0;
+            m_axis_request.TUSER <= '0;
             s_axis_response.TREADY <= 1'b0;
         end else begin
             case(state)
@@ -95,6 +98,7 @@ module spi_host_controller #(
                         m_axis_request.TVALID <= 1'b0;
                         m_axis_request.TDEST <= '0;
                         s_axis_response.TREADY <= 1'b0;
+                        m_axis_request.TUSER <= '0;
                         status <= 1'b0;
                         busy <= 1'b0;
                         if(start) begin
@@ -107,6 +111,7 @@ module spi_host_controller #(
                                     m_axis_request.TDATA <= opcode;
                                     m_axis_request.TVALID <= 1'b1;
                                     m_axis_request.TDEST <= destination;
+                                    m_axis_request.TUSER <= slave_spi_modes[destination];
                                     s_axis_response.TREADY <= 1'b1;
                                 end else if(command == WRITE) begin
                                     busy <= 1'b1;
@@ -116,8 +121,13 @@ module spi_host_controller #(
                                     m_axis_request.TDATA <= opcode;
                                     m_axis_request.TVALID <= 1'b1;
                                     m_axis_request.TDEST <= destination;
+                                    m_axis_request.TUSER <= slave_spi_modes[destination];
                                     s_axis_response.TREADY <= 1'b1;
+                                end else begin
+                                    start_accepted <= 1'b0;
                                 end
+                            end else begin
+                                start_accepted <= 1'b0;
                             end
                         end
                     end else begin
@@ -129,28 +139,26 @@ module spi_host_controller #(
                     end
                 end
                 OPCODE_ACCEPTED: begin
-                    //opcode has been accepted, next handshake loads address
+                    //opcode has been accepted, next handshake sends address
                     if(request_handshake) begin
                         state <= ADDRESS_ACCEPTED;
                         if(command_ff == READ) begin
                             m_axis_request.TDATA <= '0;
-                            m_axis_request.TVALID <= 1'b1;
                         end else if(command_ff == WRITE) begin
                             m_axis_request.TDATA <= write_data_ff;
-                            m_axis_request.TVALID <= 1'b1;
                         end
                         m_axis_request.TVALID <= 1'b1;
                     end
                 end
                 ADDRESS_ACCEPTED: begin
-                    //address has been accepted, next handshake loads data
+                    //address has been accepted, next handshake sends data
                     if(request_handshake) begin
                         m_axis_request.TDATA <= '0;
                         state <= DATA_ACCEPTED;
                     end
                 end
                 DATA_ACCEPTED: begin
-                    //data has been accepted, next handshake loads dummy
+                    //data has been accepted, next handshake sends dummy
                     if(request_handshake) begin
                         m_axis_request.TDATA <= '0;
                         m_axis_request.TVALID <= 1'b1;

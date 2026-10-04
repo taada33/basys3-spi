@@ -11,12 +11,14 @@ interface axis_if #(
     logic TREADY;
     logic TLAST;
     logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] TDEST;
+    logic [1:0] TUSER;
     
     modport master (
         output TDATA,
         output TVALID,
         output TLAST,
         output TDEST,
+        output TUSER,
         
         input TREADY,
         
@@ -31,6 +33,7 @@ interface axis_if #(
         input TVALID,
         input TLAST,
         input TDEST,
+        input TUSER,
         
         input ACLK,
         input ARESETn

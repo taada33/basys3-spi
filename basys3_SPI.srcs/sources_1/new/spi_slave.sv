@@ -12,16 +12,18 @@ module spi_slave#(
     
     //SPI signals
     input logic sclk,
-    input logic reset,
     input logic mosi,
     input logic cs_n,
     output logic miso
     );
     
+    logic reset;
+    assign reset = ~s_axis_response.ARESETn;
+    
+    
     //unused signal assignments
     assign m_axis_request.TLAST = 1'b0;
     assign m_axis_request.TDEST = '0;
-    
     
     //Data signals
     logic [DATA_WIDTH-1:0] rx_data;
