@@ -47,7 +47,7 @@ module top_tb;
     logic valid_miso_select;
     logic [NUM_DESTINATIONS-1:0] slave_miso;
     
-    assign valid_miso_select = (~cs_n != 0) && (~cs_n & (~cs_n - 1'b1)) == 0;
+    assign valid_miso_select = (~cs_n != '0) && ((~cs_n & (~cs_n - NUM_DESTINATIONS'(1))) == '0);
     
     always_comb begin
         miso_select = 0;
