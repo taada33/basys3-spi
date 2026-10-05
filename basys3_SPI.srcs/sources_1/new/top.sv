@@ -2,22 +2,78 @@
 
 module top #(
     parameter int DATA_WIDTH = 8,
-    parameter int NUM_DESTINATIONS = 4
+    parameter int NUM_DESTINATIONS = 4,
+    parameter int CLK_FREQ = 100_000_000,
+    parameter int DEBOUNCE_FREQ = 125
 )(
     input logic aclk,
     input logic reset,
     
-    input logic [DATA_WIDTH-1:0] opcode,
+    input logic start_btn,
+    input logic read_btn,
+    input logic write_btn,
+    input logic destination_left_btn,
+    input logic destination_right_btn,
+    
+    
     input logic [DATA_WIDTH-1:0] address,
     input logic [DATA_WIDTH-1:0] write_data,
-    input logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] destination,
-    
-    input logic start,
     
     output logic busy,
     output logic status,
     output logic [DATA_WIDTH-1:0] read_data
     );
+    
+    logic start;
+    logic read_opcode;
+    logic write_opcode;
+    logic destination_left;
+    logic destination_right;
+    
+    logic [DATA_WIDTH-1:0] opcode;
+    logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] destination;
+    
+    always_ff @ (posedge aclk) begin
+        if(reset) begin
+            opcode <= '0;
+        end else begin
+            case({write_opcode,read_opcode})
+                2'b00: begin
+                //do nothing.
+                end
+                2'b01: begin
+                opcode <= DATA_WIDTH'(1);
+                end
+                2'b10: begin
+                opcode <= DATA_WIDTH'(2);
+                end
+                2'b11: begin
+                opcode <= DATA_WIDTH'(3);
+                end
+                default: opcode <= DATA_WIDTH'(0);
+            endcase
+        end
+    end
+    
+    always_ff @(posedge aclk) begin
+        if(reset) begin
+            destination <= '0;
+        end else begin
+            if(destination_right && ~destination_left) begin
+                if(destination == NUM_DESTINATIONS-1) begin
+                    destination <= '0;                
+                end else begin
+                    destination <= destination + 1;
+                end
+            end else if(destination_left && ~destination_right) begin
+                if(destination == 0) begin
+                    destination <= NUM_DESTINATIONS - 1;                
+                end else begin
+                    destination <= destination - 1;
+                end
+            end
+        end
+    end
     
     logic [1:0] slave_spi_modes [0:NUM_DESTINATIONS-1];
     
@@ -31,18 +87,13 @@ module top #(
     logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] miso_select;
     logic valid_miso_select;
     
-    assign valid_miso_select = (~cs_n != '0) && ((~cs_n & (~cs_n - NUM_DESTINATIONS'(1))) == '0);
-    
-    always_comb begin
-        miso_select = 0;
-        for(int j = 0; j < $clog2(NUM_DESTINATIONS); j++) begin
-            for(int i = 0; i < NUM_DESTINATIONS; i++) begin
-                if(i[j] == 1'b1) begin
-                    miso_select[j] = miso_select[j] | ~cs_n[i];
-                end
-            end
-        end
-    end
+    active_low_encoder #(
+        .WIDTH(NUM_DESTINATIONS)
+    ) active_low_encoder_inst (
+        .input_n(cs_n),
+        .encoded(miso_select),
+        .valid(valid_miso_select)
+    );
     
     //AXI4-Stream host-master interfaces
     axis_if #(
@@ -64,7 +115,7 @@ module top #(
     spi_master #(
         .DATA_WIDTH(DATA_WIDTH),
         .NUM_SLAVES(NUM_DESTINATIONS)
-    ) spi_master_dut (
+    ) spi_master_inst (
         .s_axis_tx(host_request_if),
         .m_axis_rx(master_response_if),
         .cs_n(cs_n),
@@ -76,7 +127,7 @@ module top #(
     spi_host_controller #(
         .DATA_WIDTH(DATA_WIDTH),
         .NUM_DESTINATIONS(NUM_DESTINATIONS)
-    ) spi_host_controller_dut (
+    ) spi_host_controller_inst (
         .s_axis_response(master_response_if),
         .m_axis_request(host_request_if),
         .slave_spi_modes(slave_spi_modes),
@@ -114,7 +165,7 @@ module top #(
                 .DATA_WIDTH(DATA_WIDTH),
                 .CPOL(MODE[1]),
                 .CPHA(MODE[0])
-            ) spi_slave_dut (
+            ) spi_slave_inst (
                 .s_axis_response(memory_response_if),
                 .m_axis_request(slave_request_if),
                 .sclk(sclk),
@@ -125,7 +176,7 @@ module top #(
             
             spi_memory_controller #(
                 .DATA_WIDTH(DATA_WIDTH)
-            ) spi_memory_controller_dut (
+            ) spi_memory_controller_inst (
                 .m_axis_response(memory_response_if),
                 .s_axis_request(slave_request_if)
             );
@@ -133,6 +184,56 @@ module top #(
             assign slave_spi_modes[k] = MODE;
         end     
     endgenerate
+    
+    button_conditioner #(
+        .CLK_FREQ(CLK_FREQ),
+        .DEBOUNCE_FREQ(DEBOUNCE_FREQ)
+    ) button_conditioner_START (
+        .clk(aclk),
+        .reset(reset),
+        .signal_in(start_btn),
+        .signal_out(start)
+    );
+    
+    button_conditioner #(
+        .CLK_FREQ(CLK_FREQ),
+        .DEBOUNCE_FREQ(DEBOUNCE_FREQ)
+    ) button_conditioner_READ (
+        .clk(aclk),
+        .reset(reset),
+        .signal_in(read_btn),
+        .signal_out(read_opcode)
+    );
+    
+    button_conditioner #(
+        .CLK_FREQ(CLK_FREQ),
+        .DEBOUNCE_FREQ(DEBOUNCE_FREQ)
+    ) button_conditioner_WRITE (
+        .clk(aclk),
+        .reset(reset),
+        .signal_in(write_btn),
+        .signal_out(write_opcode)
+    );
+    
+    button_conditioner #(
+        .CLK_FREQ(CLK_FREQ),
+        .DEBOUNCE_FREQ(DEBOUNCE_FREQ)
+    ) button_conditioner_DEST_LEFT (
+        .clk(aclk),
+        .reset(reset),
+        .signal_in(destination_left_btn),
+        .signal_out(destination_left)
+    );
+    
+    button_conditioner #(
+        .CLK_FREQ(CLK_FREQ),
+        .DEBOUNCE_FREQ(DEBOUNCE_FREQ)
+    ) button_conditioner_DEST_RIGHT (
+        .clk(aclk),
+        .reset(reset),
+        .signal_in(destination_right_btn),
+        .signal_out(destination_right)
+    );
     
     
 endmodule
