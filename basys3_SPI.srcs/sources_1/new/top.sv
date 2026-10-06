@@ -7,7 +7,6 @@ module top #(
     parameter int DEBOUNCE_FREQ = 125
 )(
     input logic aclk,
-    input logic reset,
     
     input logic start_btn,
     input logic read_btn,
@@ -20,10 +19,22 @@ module top #(
     input logic [DATA_WIDTH-1:0] write_data,
     
     output logic busy,
-    output logic status,
-    output logic [DATA_WIDTH-1:0] read_data
+    output logic [DATA_WIDTH-1:0] read_data,
+    
+    //seven segment display outputs
+    output logic [6:0] seg,
+    output logic [3:0] an,
+    
+    //LED outputs
+    output logic status_led,
+    output logic write_led,
+    output logic read_led,
+    output logic cpha_led,
+    output logic cpol_led,
+    output logic [3:0] destination_led
     );
     
+    logic status;
     logic start;
     logic read_opcode;
     logic write_opcode;
@@ -32,6 +43,18 @@ module top #(
     
     logic [DATA_WIDTH-1:0] opcode;
     logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] destination;
+    
+    logic reset = 1'b1;
+    logic [3:0] reset_count = '0;
+    
+    always_ff @ (posedge aclk) begin
+        reset <= 1'b1;
+        if(reset_count > 2) begin
+            reset <= 1'b0;
+        end else begin
+            reset_count <= reset_count + 1;
+        end
+    end
     
     always_ff @ (posedge aclk) begin
         if(reset) begin
@@ -86,6 +109,13 @@ module top #(
     //N-bit encoder used to select the active slave using cs_n signal
     logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] miso_select;
     logic valid_miso_select;
+    
+    assign status_led = status;
+    assign write_led = opcode == DATA_WIDTH'(2);
+    assign read_led = opcode == DATA_WIDTH'(1);
+    assign cpha_led = slave_spi_modes[destination][0];
+    assign cpol_led = slave_spi_modes[destination][1];
+    assign destination_led = destination == '0 ? 4'b1000 : destination == 1 ? 4'b0100 : destination == 2 ? 4'b0010 : 4'b0001;
     
     active_low_encoder #(
         .WIDTH(NUM_DESTINATIONS)
@@ -233,6 +263,15 @@ module top #(
         .reset(reset),
         .signal_in(destination_right_btn),
         .signal_out(destination_right)
+    );
+    
+    seven_seg seven_seg_inst (
+        .clk(aclk),
+        .reset(reset),
+        .left_data(address),
+        .right_data(opcode == DATA_WIDTH'(1) ? read_data : write_data),
+        .seg(seg),
+        .an(an)
     );
     
     
