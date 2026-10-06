@@ -4,7 +4,7 @@ module slave_memory_tb;
 
     localparam int DATA_WIDTH = 8;
     localparam bit CPOL = 0;
-    localparam bit CPHA = 0;
+    localparam bit CPHA = 1;
     
     localparam logic [DATA_WIDTH-1:0]
         NOP = 0,
@@ -48,7 +48,6 @@ module slave_memory_tb;
         .s_axis_response(response_if),
         .m_axis_request(request_if),
         .sclk(sclk),
-        .reset(reset),
         .mosi(mosi),
         .cs_n(cs_n),
         .miso(miso)

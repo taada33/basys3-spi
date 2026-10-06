@@ -153,25 +153,24 @@ module spi_slave#(
                 end
                 
                 //shift
-                always @ (negedge sclk or cs_n or posedge reset) begin
-                    if(reset || cs_n) begin
+                always @ (negedge sclk or posedge reset) begin
+                    if(reset) begin
                         tx <= '0;
                         tx_data_consumed <= 1'b0;
-                        miso <= 1'b0;
-                    end else if(!cs_n && !CPHA && bit_counter == 0) begin
+                    end else if(!CPHA && bit_counter == DATA_WIDTH'(1)) begin
                         tx_data_consumed <= 1'b1;
                         tx <= tx_data << 1;
-                        miso <= tx_data[DATA_WIDTH-1];
-                    end else if(!cs_n && CPHA && bit_counter == 0 && sclk == CPOL) begin
+                    end else if(CPHA && bit_counter == 0 && sclk != CPOL) begin
                         tx <= tx_data;
                         tx_data_consumed <= 1'b1;
-                    end else if(!cs_n && CPHA && rx_valid) begin
-                        tx <= tx_data << 1;
-                        miso <= tx_data[DATA_WIDTH-1];
-                        tx_data_consumed <= 1'b0;
+//                    end else if(CPHA && bit_counter == 0 && sclk != CPOL && ~rx_valid) begin
+//                        tx <= tx_data;
+//                        tx_data_consumed <= 1'b1;
+//                    end else if(CPHA && rx_valid) begin
+//                        tx <= tx_data << 1;
+//                        tx_data_consumed <= 1'b0;
                     end else begin
                         tx_data_consumed <= 1'b0;
-                        miso <= tx[DATA_WIDTH-1];
                         tx <= tx << 1;
                     end
                 end
@@ -202,30 +201,35 @@ module spi_slave#(
                 end
                 
                 //shift
-                always @ (posedge sclk or cs_n or posedge reset) begin
-                    if(reset || cs_n) begin
+                always @ (posedge sclk or posedge reset) begin
+                    if(reset) begin
                         tx <= '0;
-                        miso <= 1'b0;
                         tx_data_consumed <= 1'b0;
-                    end else if(!cs_n && !CPHA && bit_counter == 0) begin
-                        tx <= tx_data << 1;
-                        miso <= tx_data[DATA_WIDTH-1];
+                    end else if(!CPHA && bit_counter == DATA_WIDTH'(1)) begin
                         tx_data_consumed <= 1'b1;
-                    end else if(!cs_n && CPHA && bit_counter == 0 && sclk == CPOL) begin
+                        tx <= tx_data << 1;
+                    end else if(CPHA && bit_counter == 0 && sclk != CPOL) begin
                         tx <= tx_data;
                         tx_data_consumed <= 1'b1;
-                    end else if(!cs_n && CPHA && rx_valid) begin
-                        tx <= tx_data << 1;
-                        miso <= tx_data[DATA_WIDTH-1];
-                        tx_data_consumed <= 1'b0;
+//                    end else if(CPHA && bit_counter == 0 && sclk != CPOL && ~rx_valid) begin
+//                        tx <= tx_data;
+//                        tx_data_consumed <= 1'b1;
+//                    end else if(CPHA && rx_valid) begin
+//                        tx <= tx_data << 1;
+//                        tx_data_consumed <= 1'b0;
                     end else begin
-                        miso <= tx[DATA_WIDTH-1];
-                        tx <= tx << 1;
                         tx_data_consumed <= 1'b0;
+                        tx <= tx << 1;
                     end
                 end
             end
         endcase
     endgenerate
+    
+//    assign miso = (~cs_n && !CPHA && bit_counter == 0) || (!cs_n && CPHA && rx_valid) ? tx_data[DATA_WIDTH-1] : 
+//                cs_n || reset ? 1'b0 : tx[DATA_WIDTH-1];
+                
+    assign miso = (~cs_n && !CPHA && bit_counter == 0) ? tx_data[DATA_WIDTH-1] : 
+    cs_n || reset ? 1'b0 : tx[DATA_WIDTH-1];
     
 endmodule

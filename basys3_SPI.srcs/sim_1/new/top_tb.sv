@@ -156,6 +156,8 @@ module top_tb;
     
     
     task automatic drive_host(input logic [DATA_WIDTH-1:0] opcode_in, input logic [DATA_WIDTH-1:0] address_in, input logic [((NUM_DESTINATIONS <= 1) ? 1 : $clog2(NUM_DESTINATIONS))-1:0] destination_in, input logic [DATA_WIDTH-1:0] write_data_in = '0);
+        $display("SPI mode: CPOL =%0d CPHA =%0d",slave_spi_modes[destination_in][1],slave_spi_modes[destination_in][0]);
+        
         opcode = opcode_in;
         address = address_in;
         write_data = write_data_in;
