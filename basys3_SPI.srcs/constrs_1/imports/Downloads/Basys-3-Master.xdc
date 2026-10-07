@@ -6,8 +6,8 @@
 ## Clock signal
 set_property -dict { PACKAGE_PIN W5   IOSTANDARD LVCMOS33 } [get_ports aclk]
 create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports aclk]
-
-#some sclk clockarage needs to be added here
+## SPI Clock
+create_generated_clock -name spi_generated -source [get_ports aclk] -divide_by 10 [get_pins spi_master_inst/sclk_reg/Q]
 
 ## Switches - Write Data [7:0]
 set_property -dict { PACKAGE_PIN V17 IOSTANDARD LVCMOS33 } [get_ports {write_data[0]}]

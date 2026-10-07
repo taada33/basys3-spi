@@ -18,9 +18,6 @@ module top #(
     input logic [DATA_WIDTH-1:0] address,
     input logic [DATA_WIDTH-1:0] write_data,
     
-    output logic busy,
-    output logic [DATA_WIDTH-1:0] read_data,
-    
     //seven segment display outputs
     output logic [6:0] seg,
     output logic [3:0] an,
@@ -33,6 +30,9 @@ module top #(
     output logic cpol_led,
     output logic [3:0] destination_led
     );
+    
+    logic busy;
+    logic [DATA_WIDTH-1:0] read_data;
     
     logic status;
     logic start;
